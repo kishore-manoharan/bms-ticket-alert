@@ -168,73 +168,107 @@ async def capture_json(response: Response, captured: list[tuple[str, Any]]) -> N
         )
 
 
-@retry(retry=retry_if_exception_type(Exception), wait=wait_exponential_jitter(initial=2, max=20), stop=stop_after_attempt(3), reraise=True)
+@retry(
+    retry=retry_if_exception_type(Exception),
+    wait=wait_exponential_jitter(initial=2, max=20),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
 async def playwright_showtimes(settings: Settings) -> dict[str, list[str]]:
-    """Load the canonical showtime URL and inspect its JSON traffic first."""
-    captured: list[tuple[str, Any]] = []
+
+    captured: list[tuple[str, Any]] = {}
+
     async with async_playwright() as playwright:
+
         browser = await playwright.chromium.launch(headless=True)
-        page: Page = await browser.new_page(viewport={"width": 1440, "height": 1100})
-        page.on("response", lambda response: asyncio.create_task(capture_json(response, captured)))
+
+        page = await browser.new_page(
+            viewport={"width": 1440, "height": 1100}
+        )
+
+        page.on(
+            "response",
+            lambda response: asyncio.create_task(
+                capture_json(response, captured)
+            ),
+        )
+
         try:
-            await page.goto(settings.showtime_url, wait_until="domcontentloaded", timeout=settings.timeout_seconds * 1000)
-            logging.info("Page loaded")
-            logging.info("Final URL : %s", page.url)
-            await page.wait_for_timeout(5_000)  # allow client-side showtime data to arrive
-            await page.wait_for_timeout(500)    # let response handlers finish
-            logging.info(
-                "Captured %d JSON responses",
-                len(captured),
+
+            logging.info("Opening page...")
+            logging.info(settings.showtime_url)
+
+            await page.goto(
+                settings.showtime_url,
+                wait_until="domcontentloaded",
+                timeout=settings.timeout_seconds * 1000,
             )
+
+            logging.info("Page loaded")
+            logging.info("Final URL = %s", page.url)
+
+            await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(500)
+
+            logging.info("Captured JSON responses = %d", len(captured))
+
             for url, payload in captured:
+
+                logging.info("Checking JSON response:")
+                logging.info(url)
+
                 matches = matches_from_payload(payload, settings)
+
                 if matches:
-                    logging.info("Discovered showtime JSON response: %s", url)
+
+                    logging.info("SUCCESS from JSON")
                     return matches
 
-            # Last resort: never scan the whole document.  Limit extraction to
-            # the closest venue card containing an exact configured name.
-            matches: dict[str, list[str]] = {}
-            logging.info("Falling back to DOM search")
+            logging.info("No JSON matches found.")
+            logging.info("Trying DOM fallback...")
 
-body = await page.locator("body").inner_text()
+            body = await page.locator("body").inner_text()
 
-logging.info(
-    "Page contains %d characters",
-    len(body),
-)
+            logging.info("Body length = %d", len(body))
+            logging.info(body[:2000])
 
-logging.info(
-    "First 1500 chars:\n%s",
-    body[:1500],
-)
+            matches = {}
+
             for theatre in settings.theatres:
-                logging.info("Searching for theatre: %s", theatre)
 
-label = page.get_by_text(theatre, exact=False).first
+                logging.info("Searching theatre = %s", theatre)
 
-count = await label.count()
+                logging.info(
+                    "Body contains theatre = %s",
+                    theatre.lower() in body.lower(),
+                )
 
-logging.info("Locator count = %d", count)
+                label = page.get_by_text(theatre, exact=False).first
 
-if count == 0:
-    continue
+                count = await label.count()
 
-card = label.locator(
-    "xpath=ancestor-or-self::*[self::section or self::li or self::div][.//text()]"
-).first
+                logging.info("Locator count = %d", count)
 
-text = await card.inner_text(timeout=5000)
+                if count == 0:
+                    continue
 
-logging.info("Card text:\n%s", text)
+                card = label.locator(
+                    "xpath=ancestor-or-self::*[self::section or self::li or self::div][.//text()]"
+                ).first
 
-times = sorted(set(TIME_RE.findall(text)))
+                text = await card.inner_text(timeout=5000)
 
-logging.info("Times found: %s", times)
+                logging.info(text)
 
-if times:
-    matches[theatre] = times
+                times = sorted(set(TIME_RE.findall(text)))
+
+                logging.info("Times = %s", times)
+
+                if times:
+                    matches[theatre] = times
+
             return matches
+
         finally:
             await browser.close()
 
