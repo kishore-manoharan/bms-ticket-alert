@@ -8,8 +8,8 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Settings:
-    movie_name: str = "Jana Nayagan"
-    movie_code: str = "ET00430817"
+    movie_name: str = "the-odyssey"
+    movie_code: str = "ET00452034"
     region_code: str = "CHEN"  # BookMyShow's Chennai region code.
     target_date: str = "20260724"  # YYYYMMDD
     theatres: tuple[str, ...] = (
