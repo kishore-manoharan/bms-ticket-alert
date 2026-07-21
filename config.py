@@ -13,15 +13,15 @@ class Settings:
     region_code: str = "CHEN"  # BookMyShow's Chennai region code.
     target_date: str = "20260722"  # YYYYMMDD
     theatres: tuple[str, ...] = (
-        "AGS Cinemas OMR Navlur",
-        "INOX LUXE Phoenix Market City, Velachery",
+        "AGS Cinemas OMR: Navlur",
+        "INOX: LUXE Phoenix Market City, Velachery",
     )
     bot_token: str = os.environ.get("BOT_TOKEN", "")
     chat_id: str = os.environ.get("CHAT_ID", "")
     state_file: Path = Path(os.environ.get("STATE_FILE", ".state/bms_notification_state.json"))
     timeout_seconds: int = 45
     # This is a public movie/showtime URL, pinned to the movie and date.
-    showtime_url: str = "https://in.bookmyshow.com/movies/chennai/jana-nayagan/buytickets/ET00430817/20260724"
+    showtime_url: str = "https://in.bookmyshow.com/movies/chennai/the-odyssey/buytickets/ET00452034/20260722"
     # Undocumented BookMyShow JSON endpoint. Kept as a best-effort fast path.
     api_url: str = "https://in.bookmyshow.com/pwa/api/de/showtimes/byevent"
 
