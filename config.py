@@ -13,8 +13,8 @@ class Settings:
     region_code: str = "CHEN"  # BookMyShow's Chennai region code.
     target_date: str = "20260722"  # YYYYMMDD
     theatres: tuple[str, ...] = (
-        "AGS Cinemas OMR: Navlur",
-        "INOX: LUXE Phoenix Market City, Velachery",
+        "AGS Cinemas OMR",
+        "Phoenix Market City",
     )
     bot_token: str = os.environ.get("BOT_TOKEN", "")
     chat_id: str = os.environ.get("CHAT_ID", "")
