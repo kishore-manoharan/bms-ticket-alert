@@ -27,8 +27,19 @@ TIME_RE = re.compile(r"\b(?:[0-1]?\d|2[0-3]):[0-5]\d\s*(?:[AaPp]\.?[Mm]\.?)?\b")
 
 
 def configure_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
 
+    logging.info("=" * 80)
+    logging.info("BookMyShow Monitor Started")
+    logging.info("Movie      : %s", SETTINGS.movie_name)
+    logging.info("Movie Code : %s", SETTINGS.movie_code)
+    logging.info("Date       : %s", SETTINGS.target_date)
+    logging.info("Showtime   : %s", SETTINGS.showtime_url)
+    logging.info("Theatres   : %s", SETTINGS.theatres)
+    logging.info("=" * 80)
 
 def walk_dicts(value: Any) -> Iterator[dict[str, Any]]:
     """Yield every JSON object; endpoint schemas can change without notice."""
@@ -58,19 +69,50 @@ def collect_times(value: Any) -> list[str]:
 
 
 def matches_from_payload(payload: Any, settings: Settings) -> dict[str, list[str]]:
-    """Return only configured theatres that have at least one real show time."""
+
     found: dict[str, list[str]] = {}
+
+    logging.info("Scanning JSON payload...")
+
     for item in walk_dicts(payload):
-        # VenueName is used by the known legacy JSON response; also accept
-        # current endpoint variants such as theatreName / cinema_name.
+
         candidate = " ".join(
-            str(item.get(key, "")) for key in ("VenueName", "venueName", "theatreName", "theaterName", "cinemaName", "name")
-        ).casefold()
+            str(item.get(key, ""))
+            for key in (
+                "VenueName",
+                "venueName",
+                "theatreName",
+                "theaterName",
+                "cinemaName",
+                "name",
+            )
+        ).strip()
+
+        if candidate:
+
+            logging.info("Discovered theatre: %s", candidate)
+
         for theatre in settings.theatres:
-            if theatre.casefold() in candidate:
+
+            if theatre.casefold() in candidate.casefold():
+
+                logging.info(
+                    "Matched theatre: %s",
+                    theatre,
+                )
+
                 times = collect_times(item)
+
+                logging.info(
+                    "Show times: %s",
+                    times,
+                )
+
                 if times:
                     found[theatre] = times
+
+    logging.info("Matched theatres = %d", len(found))
+
     return found
 
 
@@ -93,16 +135,37 @@ def api_showtimes(settings: Settings) -> dict[str, list[str]]:
 
 
 async def capture_json(response: Response, captured: list[tuple[str, Any]]) -> None:
-    """Capture only JSON XHR/fetch responses; failures are expected on ads/CDNs."""
+
     if response.request.resource_type not in {"xhr", "fetch"}:
         return
+
+    logging.info(
+        "XHR %s  [%s]",
+        response.url,
+        response.status,
+    )
+
     content_type = response.headers.get("content-type", "")
+
     if "json" not in content_type.lower():
         return
+
     try:
-        captured.append((response.url, await response.json()))
-    except Exception as exc:  # network body may be unavailable after navigation
-        logging.debug("Could not parse JSON response %s: %s", response.url, exc)
+        payload = await response.json()
+
+        logging.info(
+            "Captured JSON: %s",
+            response.url,
+        )
+
+        captured.append((response.url, payload))
+
+    except Exception as exc:
+        logging.warning(
+            "Unable to parse JSON from %s : %s",
+            response.url,
+            exc,
+        )
 
 
 @retry(retry=retry_if_exception_type(Exception), wait=wait_exponential_jitter(initial=2, max=20), stop=stop_after_attempt(3), reraise=True)
@@ -115,8 +178,14 @@ async def playwright_showtimes(settings: Settings) -> dict[str, list[str]]:
         page.on("response", lambda response: asyncio.create_task(capture_json(response, captured)))
         try:
             await page.goto(settings.showtime_url, wait_until="domcontentloaded", timeout=settings.timeout_seconds * 1000)
+            logging.info("Page loaded")
+            logging.info("Final URL : %s", page.url)
             await page.wait_for_timeout(5_000)  # allow client-side showtime data to arrive
             await page.wait_for_timeout(500)    # let response handlers finish
+            logging.info(
+                "Captured %d JSON responses",
+                len(captured),
+            )
             for url, payload in captured:
                 matches = matches_from_payload(payload, settings)
                 if matches:
@@ -126,15 +195,45 @@ async def playwright_showtimes(settings: Settings) -> dict[str, list[str]]:
             # Last resort: never scan the whole document.  Limit extraction to
             # the closest venue card containing an exact configured name.
             matches: dict[str, list[str]] = {}
+            logging.info("Falling back to DOM search")
+
+body = await page.locator("body").inner_text()
+
+logging.info(
+    "Page contains %d characters",
+    len(body),
+)
+
+logging.info(
+    "First 1500 chars:\n%s",
+    body[:1500],
+)
             for theatre in settings.theatres:
-                label = page.get_by_text(theatre, exact=False).first
-                if await label.count() == 0:
-                    continue
-                card = label.locator("xpath=ancestor-or-self::*[self::section or self::li or self::div][.//text()]").first
-                text = await card.inner_text(timeout=5_000)
-                times = sorted(set(TIME_RE.findall(text)))
-                if times:
-                    matches[theatre] = times
+                logging.info("Searching for theatre: %s", theatre)
+
+label = page.get_by_text(theatre, exact=False).first
+
+count = await label.count()
+
+logging.info("Locator count = %d", count)
+
+if count == 0:
+    continue
+
+card = label.locator(
+    "xpath=ancestor-or-self::*[self::section or self::li or self::div][.//text()]"
+).first
+
+text = await card.inner_text(timeout=5000)
+
+logging.info("Card text:\n%s", text)
+
+times = sorted(set(TIME_RE.findall(text)))
+
+logging.info("Times found: %s", times)
+
+if times:
+    matches[theatre] = times
             return matches
         finally:
             await browser.close()
