@@ -11,7 +11,7 @@ class Settings:
     movie_name: str = "the-odyssey"
     movie_code: str = "ET00452034"
     region_code: str = "CHEN"  # BookMyShow's Chennai region code.
-    target_date: str = "20260724"  # YYYYMMDD
+    target_date: str = "20260722"  # YYYYMMDD
     theatres: tuple[str, ...] = (
         "AGS Cinemas OMR Navlur",
         "INOX LUXE Phoenix Market City, Velachery",
